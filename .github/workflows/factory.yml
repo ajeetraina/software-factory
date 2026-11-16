@@ -1,0 +1,80 @@
+name: Software Factory
+
+# Label any issue with "factory" and the five-stage cloud pipeline runs against
+# the issue's title/body as the feature request, then opens a PR with the result.
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: write        # push the factory/* branch
+  pull-requests: write   # open the PR
+  issues: write          # comment back on the issue
+
+jobs:
+  factory:
+    if: github.event.label.name == 'factory'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install factory orchestrator deps
+        working-directory: factory
+        run: npm install
+
+      - name: Type-check orchestrator
+        working-directory: factory
+        run: npm run typecheck
+
+      - name: Run the factory
+        id: factory
+        working-directory: factory
+        env:
+          # Cloud Sandboxes auth — create at Docker Hub > Account Settings > PATs.
+          DOCKER_PAT: ${{ secrets.DOCKER_PAT }}
+          # Injected into each agent kit — see cookbook "run agents with kits".
+          # Anthropic for the claude stages, OpenAI for the codex review stage.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Used by the orchestrator to clone/push inside each sandbox.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          npm run factory -- "${{ github.event.issue.title }}
+
+          ${{ github.event.issue.body }}"
+
+      - name: Open pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="${{ steps.factory.outputs.branch }}"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "Factory: ${{ github.event.issue.title }}" \
+            --body "Automated by the Docker Sandbox software factory. Closes #${{ github.event.issue.number }}.
+
+          Review \`SPEC.md\` and \`REVIEW.md\` on the branch before merging.
+          Reminder: inspect \`.git/hooks/\` and the full diff — agent-authored hooks are invisible to \`git diff\`."
+
+      - name: Comment on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "Factory finished on branch \`${{ steps.factory.outputs.branch }}\` — PR opened."
+          else
+            gh issue comment ${{ github.event.issue.number }} \
+              --body "Factory run failed (${{ job.status }}). See the [workflow logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+          fi

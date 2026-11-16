@@ -1,0 +1,7 @@
+# Sandbox template for the RELEASE stage: the `-docker` variant bundles an inner
+# Docker daemon so the release agent can `docker build` the app image. The inner
+# daemon is fully isolated from the host Docker daemon.
+FROM docker/sandbox-templates:claude-code-docker
+
+USER agent
+RUN npm install -g semver

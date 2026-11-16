@@ -1,0 +1,10 @@
+# Sandbox template for the TEST stage: Claude Code + test tooling preinstalled
+# so `npm test` starts fast and works offline-ish (npm registry still allowed).
+FROM docker/sandbox-templates:claude-code
+
+USER root
+RUN apt-get update && apt-get install -y jq \
+ && rm -rf /var/lib/apt/lists/*
+
+USER agent
+RUN npm install -g vitest supertest
